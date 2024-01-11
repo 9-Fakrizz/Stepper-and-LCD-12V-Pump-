@@ -1,6 +1,7 @@
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
 
+#define WATER_SENSOR 3
 #define STEPPER_PIN_1 11
 #define STEPPER_PIN_2 10
 #define STEPPER_PIN_3 9
@@ -25,14 +26,18 @@ int manual_mmhg = 50;
 int mmhg_sel;
 String mode_sel_name[5] = {"0", "Manual", "small child", "older child", "adult"};
 
-// Configurations
-String mmhg_sel_name[5] = {"0", "50-300", "70", "100", "115"};
-int step_setup_arr[4] = {20, 20, 20, 20};  // fix for manual , smch, oldch, adult
-int step_mmhg_each_5[50] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
-                            11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
-                            21, 22, 23, 24, 25, 26, 27, 28, 29, 30,
-                            31, 32, 33, 34, 35, 36, 37, 38, 39, 40,
-                            41, 42, 43, 44, 45, 46, 47, 48, 49, 50};
+////////////////////////////////////////////////////////////////
+////////////////      Configurations   ////////////////////////
+//////////////////////////////////////////////////////////////
+
+String mmhg_sel_name[5] = {"0", "50-200", "70", "100", "115"};
+int step_setup_arr[4] = {1900, 2360, 2360, 2360};  // fix for manual , smch, oldch, adult
+int step_mmhg_each_5[31] = 
+                          {0, 20 , 90 , 100 , 180 , 200 , 220 , 240 , 270 , 290 ,
+
+                            300 , 350 , 370 , 380 , 390 , 400 , 410 , 430 , 460 , 480 ,
+                            
+                            490 , 500 , 510 , 520 , 540 , 550 , 560 , 570 , 590 , 600, 610, };
 
 int motor_active;
 int menu;
@@ -48,6 +53,7 @@ int get_step = 20;
 bool dir = true;
 bool task = false;
 
+
 // Function Declarations
 void readButtons();
 void printButtons();
@@ -59,10 +65,13 @@ void selectMenu();
 void setZeroStepper();
 void oneStep(bool dir);
 
-// Main Setup
+//////////////////////////////////////////////////////////////////////////
+///////////////////////      Main Setup     //////////////////////////////
+//////////////////////////////////////////////////////////////////////////
+
 void setup() {
   lcd.init();
-  Serial.begin(9600);
+  Serial.begin(115200);
   lcd.backlight();
 
   pinMode(STEPPER_PIN_1, OUTPUT);
@@ -78,56 +87,75 @@ void setup() {
   pinMode(2, OUTPUT);
   digitalWrite(2, HIGH);
 
-  // Water analog
+  // Water
   pinMode(A1, INPUT);
+  lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print("Setting to Zero ...");
   setZeroStepper();
+  lcd.clear();
+  lcd.print("Set-Zero Complete!");
+ 
 }
+////////////////////////////////////////////////////////////////////////////
+/////////////////          Main Loop              //////////////////////////
+////////////////////////////////////////////////////////////////////////////
 
-// Main Loop
 void loop() {
   readButtons();
   readBattery();
   checkWaterSensor();
   displayData();
   selectMenu();
-
-  if (task) {
+  water = analogRead(A1);
+  Serial.println("water :" + String(water));
+  Serial.println("Fix Step : " + String(step_setup_arr[sel_arrow]));
+  Serial.print("Manual Step : " + String(step_mmhg_each_5[i]));
+  Serial.println("  Index : " + String(i));
+  if (task && analogRead(A1) < 5) {
     Serial.println("Starting...");
     lcd.setCursor(0, 0);
     lcd.print("Start.....");
     setZeroStepper();
 
     // Fix Stepper
+    Serial.println("Fix step .....");
     for (int i = 0; i <= step_setup_arr[sel_arrow]; i++) {
       oneStep(!dir);
       delayMicroseconds(3000);
     }
-
-    Serial.println("Fix Stepper Complete !");
-    lcd.clear();
-    lcd.print("Fix Stepper Complete !");
-    delay(500);
+    //Serial.println("Fix Stepper Complete !");
+    //lcd.clear();
+    //lcd.print("Fix Stepper Complete !");
+    //delay(500);
 
     // Manual
+    Serial.println("Manual Step .....");
     if (sel_arrow == 0) {
-      for (int j = 0; j <= step_mmhg_each_5[manual_mmhg]; j++) {
+      for (int j = 0; j < step_mmhg_each_5[i]; j++) {
         oneStep(!dir);
         delayMicroseconds(3000);
       }
-      Serial.println("Manual Complete!");
-      lcd.clear();
-      lcd.print("Manual Complete!");
-      delay(500);
+     //Serial.println("Manual Complete!");
+     //lcd.clear();
+     //lcd.print("Manual Complete!");
+     //delay(500);
     }
 
     lcd.clear();
     lcd.print("Started 12V Pump !");
-    while (digitalRead(button_pin[4]) != LOW) {
-      digitalWrite(2, LOW);
+    Serial.println("Start 12v Pump .....");
+    
+    digitalWrite(2, LOW);
+    while (digitalRead(button_pin[4]) != LOW && menu != 0) {
+       checkWaterSensor();
     }
+    Serial.println("Out of While loop() ");
     digitalWrite(2, HIGH);
+    
+  
 
-    // Set Zero
+     //Set Zero
     setZeroStepper();
     Serial.println("Set-Zero Complete!");
     lcd.clear();
@@ -137,17 +165,32 @@ void loop() {
     task = false;
     lcd.clear();
   }
+  if(analogRead(A1) > 8){
+    lcd.clear();
+    lcd.setCursor(0,0);
+    lcd.print("Water is FULL !");
+    delay(1000);
+    lcd.clear();
+  }
 
   delay(10);
 }
 
+
+//////////////////////////////////////////////////////////////////////////
+////////////////     All Functions are below here  ///////////////////////
+/////////////////////////////////////////////////////////////////////////
+
+
 // Function Definitions
 
+//////////////////////////////////////////////////////////////
 void readButtons() {
   for (int i = 1; i <= buttonCount; i++) {
     buttonState[i] = digitalRead(button_pin[i]);
   }
 }
+/////////////////////////////////////////////////////////////
 
 void printButtons() {
   for (int i = 1; i <= buttonCount; i++) {
@@ -156,6 +199,8 @@ void printButtons() {
   }
   Serial.println("");
 }
+
+////////////////////////////////////////////////////////////////
 
 void readBattery() {
   value = analogRead(analogInput);
@@ -170,11 +215,18 @@ void readBattery() {
   }
 }
 
+////////////////////////////////////////////////////////////////
+
 void checkWaterSensor() {
-  water = (analogRead(A1) >= 1000) ? 1 : 0;
-  digitalWrite(2, (water == 1) ? LOW : HIGH);
-  start = (water == 1) ? 0 : start;
+  Serial.println("Water : "+String(analogRead(A1)));
+  if(analogRead(A1) > 14){
+    Serial.println("Water : "+String(analogRead(A1)));
+    digitalWrite(2, HIGH); //HIGH is Turn off 
+    menu = 0; 
+    Serial.println("Waterrrrrrrrrrrrrrrrrrrrrrrrrrr");
+  }
 }
+/////////////////////////////////////////////////////////////////////
 
 void clearArrow() {
   for (int i = 0; i <= 3; i++) {
@@ -183,6 +235,7 @@ void clearArrow() {
   }
 }
 
+////////////////////////////////////////////////////////////////////
 void displayData() {
   lcd.setCursor(14, 0);
 
@@ -212,14 +265,17 @@ void displayData() {
     if (sel_arrow == 0) {
       lcd.setCursor(0, 2);
       lcd.print(" [" + String(manual_mmhg) + " mmhg" + "]");
-      lcd.setCursor(0, 3);
-      lcd.print("Step : " + String(step_mmhg_each_5[i]));
+//      lcd.setCursor(0, 3);
+//      lcd.print("Step : " + String(step_mmhg_each_5[i]));
+
     } else {
-      lcd.setCursor(0, 3);
-      lcd.print("Step : " + String(step_setup_arr[sel_arrow]));
+//      lcd.setCursor(0, 3);
+//      lcd.print("Step : " + String(step_setup_arr[sel_arrow]));
     }
   }
 }
+
+///////////////////////////////////////////////////////////////////////////////
 
 void selectMenu() {
   delay(60);
@@ -257,7 +313,7 @@ void selectMenu() {
     }
 
     if (sel_arrow == 0) {
-      if (buttonState[1] == LOW && manual_mmhg <= 300) {
+      if (buttonState[1] == LOW && manual_mmhg < 200) { // 200 mmhg adjust
         manual_mmhg += 5;
         i++;
       }
@@ -275,11 +331,16 @@ void selectMenu() {
 
     if (buttonState[4] == LOW) {
       menu = 0;
+      setZeroStepper();
+      Serial.println("set Zero complete!");
       sel_arrow = 0;
       lcd.clear();
     }
   }
 }
+
+
+//////////////////////////////////// set zero ////////////////////////
 
 void setZeroStepper() {
   buttonState[5] = digitalRead(button_pin[5]);
@@ -295,8 +356,10 @@ void setZeroStepper() {
   }
 }
 
+/////////////////////////////////////////////////////////////////////////////
+
 void oneStep(bool dir) {
-  if (dir) {
+  if (!dir) {
     switch (step_number) {
       case 0:
         digitalWrite(STEPPER_PIN_1, HIGH);
@@ -358,3 +421,4 @@ void oneStep(bool dir) {
     step_number = 0;
   }
 }
+/////////////////////////////////////////////////////////////
